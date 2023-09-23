@@ -77,8 +77,8 @@ int main(int argc, char *argv[]) {
 	tree->setInputCloud(input_cloud);
 	detector.setSearchTree(tree);
 	detector.setSearchRadius(vm["search_radius"].as<int>() * dist_mean);
-	detector.setUpperPotentialBound(0.05);
-	detector.setLowerPotentialBound(0.2);
+	detector.setUpperPotentialBound(0.08);
+	detector.setLowerPotentialBound(0.25);
 	detector.setScalingFactor(vm["bilateral_weight_normal"].as<double>(), vm["bilateral_weight_plane"].as<double>() * dist_mean);
 	feat_cloud = detector.detectFeaturePoints();
 	

@@ -6,6 +6,8 @@
 using PointT = pcl::PointXYZI;
 using PointCloud = pcl::PointCloud<PointT>;
 using PointCloudPtr = PointCloud::Ptr;
+using NormalCloud = pcl::PointCloud<pcl::Normal>;
+using NormalCloudPtr = NormalCloud::Ptr;
 using SearchPtr = pcl::search::KdTree<PointT>::Ptr;
 
 class StD_perception {
@@ -19,6 +21,8 @@ public:
 	{
 		normal_ = std::make_shared<pcl::PointCloud<pcl::Normal>>();
 		feat_ = std::make_shared<PointCloud>();
+		potential_feat_=std::make_shared<PointCloud>();
+		potential_feat_normal_ = std::make_shared<NormalCloud>();
 	}
 
 	inline void 
@@ -49,17 +53,31 @@ public:
 
 
 private:
-	float calWCPMetric(const int indice);
+	float calWCPMetric(const int p_indice, const std::vector<int> nn_indices);
+
+	std::vector<std::vector<int>> splitNeighbors(const int& p_indice, const std::vector<int>& nn_indices);
 
 protected:
 	//The input cloud
 	PointCloudPtr input_;
+
+	//The normal of the input point cloud
+	pcl::PointCloud<pcl::Normal>::Ptr normal_;
+
+	//The potential feature point cloud
+	PointCloudPtr potential_feat_;
+
+	//The normal of the potential feature point cloud
+	NormalCloudPtr potential_feat_normal_;
 
 	//The feature cloud
 	PointCloudPtr feat_;
 
 	//The search object for picking subsequent samples using radius search
 	SearchPtr tree_;
+
+	//The proportion of feature points in the total point cloud
+	float alpha_;
 
 	//Points ranked in the top beta% will be considered as feature points
 	float beta_;
@@ -76,6 +94,6 @@ protected:
 	//The dist scaling factor mu_p
 	float mu_p_;
 
-	//The normal of the input point cloud
-	pcl::PointCloud<pcl::Normal>::Ptr normal_;
+	
+
 };
