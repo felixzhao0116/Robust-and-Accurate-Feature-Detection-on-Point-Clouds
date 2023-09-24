@@ -13,11 +13,13 @@ using SearchPtr = pcl::search::KdTree<PointT>::Ptr;
 class StD_perception {
 public:
 	StD_perception()
-		: beta_(0.2)
+		: alpha_(0.3)
+		, beta_(0.2)
 		, gamma_(0.2)
 		, radius_(0.003)
 		, mu_n_(30)
 		, mu_p_(0.1)
+		, splitting_n_(3)
 	{
 		normal_ = std::make_shared<pcl::PointCloud<pcl::Normal>>();
 		feat_ = std::make_shared<PointCloud>();
@@ -27,6 +29,9 @@ public:
 
 	inline void 
 		setInputCloud(const PointCloudPtr& cloud) { input_ = cloud; }
+
+	inline void
+		setFeaturePointsPropotion(double alpha) { alpha_ = alpha; }
 
 	inline void 
 		setUpperPotentialBound(double beta) { beta_ = beta; }
@@ -49,6 +54,9 @@ public:
 	inline void
 		setScalingFactor(float mu_n, float mu_p) { mu_n_ = mu_n; mu_p_ = mu_p; }
 
+	inline void
+		setSplittingTimes(int splitting_n) { splitting_n_ = splitting_n; }
+
 	PointCloudPtr detectFeaturePoints();
 
 
@@ -69,6 +77,9 @@ protected:
 
 	//The normal of the potential feature point cloud
 	NormalCloudPtr potential_feat_normal_;
+
+	//The indices of the potential feature point cloud
+	pcl::Indices potential_feat_indices_;
 
 	//The feature cloud
 	PointCloudPtr feat_;
@@ -94,6 +105,8 @@ protected:
 	//The dist scaling factor mu_p
 	float mu_p_;
 
+	//The number of splitting operation
+	int splitting_n_;
 	
 
 };

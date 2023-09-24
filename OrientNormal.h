@@ -6,6 +6,7 @@
 #include <pcl/point_cloud.h>
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/mst_orient_normals.h>      // 最小生成树法线定向
+
 // Types
 typedef CGAL::Simple_cartesian<float> Kernel;
 // 定义存储点和法线的容器

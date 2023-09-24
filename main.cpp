@@ -20,8 +20,12 @@ int main(int argc, char *argv[]) {
 	desc.add_options()
 		("help,h", "produce help message")
 		("search_radius,r", po::value<int>(), "Please enter a multiplier for the search radius (between 5 and 10) ")
+		("feature_points_propotion,a", po::value<double>(), "Please enter the propotion of the feature point (between 0.0 to 1.0)")
+		("upper_potential_bound,b", po::value<double>(), "Please enter the upper potential bound (between 0.0 to 1.0)")
+		("lower_potential_bound,c", po::value<double>(), "Please enter the lower potential bound (between 0.0 to 1.0)")
 		("bilateral_weight_normal,n", po::value<double>(), "Please enter the scaling factor of the normal (between 0.07 and 0.25) ")
-		("bilateral_weight_plane,p", po::value<double>(), "Please enter a multiplier for the scaling factor of the plane (between 0.2 and 0.8) ");
+		("bilateral_weight_plane,p", po::value<double>(), "Please enter a multiplier for the scaling factor of the plane (between 0.2 and 0.8) ")
+		("splitting_times,t", po::value<int>(), "Please enter the splitting times (between 0 to 3)");
 	po::variables_map vm;
 
 	//load point cloud
@@ -56,12 +60,28 @@ int main(int argc, char *argv[]) {
 			std::cout << "The search_radius was set to " << vm["search_radius"].as<int>()* dist_mean << ".\n";
 		}
 
+		if (vm.count("feature_points_propotion")) {
+			std::cout << "The propotion of the feature points was set to " << vm["feature_points_propotion"].as<double>() << ".\n";
+		}
+
+		if (vm.count("upper_potential_bound")) {
+			std::cout << "The upper potential bound was set to " << vm["upper_potential_bound"].as<double>() << ".\n";
+		}
+
+		if (vm.count("lower_potential_bound")) {
+			std::cout << "The lower potential bound was set to " << vm["lower_potential_bound"].as<double>() << ".\n";
+		}
+
 		if (vm.count("bilateral_weight_normal")) {
 			std::cout << "The scaling factor of normal was set to " << vm["bilateral_weight_normal"].as<double>() << ".\n";
 		}
 
 		if (vm.count("bilateral_weight_plane")) {
 			std::cout << "The scaling factor of plane was set to " << vm["bilateral_weight_plane"].as<double>() * dist_mean << ".\n";
+		}
+
+		if (vm.count("splitting_times")) {
+			std::cout << "The splitting times was set to " << vm["splitting_times"].as<int>() << ".\n";
 		}
 	}
 	catch (const po::error& ex) {
@@ -77,8 +97,9 @@ int main(int argc, char *argv[]) {
 	tree->setInputCloud(input_cloud);
 	detector.setSearchTree(tree);
 	detector.setSearchRadius(vm["search_radius"].as<int>() * dist_mean);
-	detector.setUpperPotentialBound(0.08);
-	detector.setLowerPotentialBound(0.25);
+	detector.setFeaturePointsPropotion(vm["feature_points_propotion"].as<double>());
+	detector.setUpperPotentialBound(vm["upper_potential_bound"].as<double>());
+	detector.setLowerPotentialBound(vm["lower_potential_bound"].as<double>());
 	detector.setScalingFactor(vm["bilateral_weight_normal"].as<double>(), vm["bilateral_weight_plane"].as<double>() * dist_mean);
 	feat_cloud = detector.detectFeaturePoints();
 	

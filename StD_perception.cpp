@@ -11,7 +11,7 @@
 
 #include <pcl/visualization/pcl_visualizer.h>
 
-static bool compareIntensity(const pcl::PointXYZINormal& a, const pcl::PointXYZINormal& b) {
+static bool compareIntensity(const PointT& a, const PointT& b) {
 	return a.intensity > b.intensity;
 }
 
@@ -49,7 +49,7 @@ std::vector<std::vector<int>> StD_perception::splitNeighbors(const int& p_indice
 	// Compute the centroid
 	Eigen::Vector3f centroid(0, 0, 0);
 	for (const int& i : nn_indices) {
-		centroid += potential_feat_->points[nn_indices[i]].getVector3fMap();
+		centroid += input_->points[i].getVector3fMap();
 	}
 	centroid /= static_cast<float>(nn_indices.size());
 
@@ -58,18 +58,19 @@ std::vector<std::vector<int>> StD_perception::splitNeighbors(const int& p_indice
 		std::vector<int> subNbrA, subNbrB;
 
 		// Define the plane
-		Eigen::Vector3f normal = (centroid - (*potential_feat_)[p_indice].getVector3fMap()).cross(potential_feat_->points[nn_indices[i]].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap());
+		Eigen::Vector3f normal = (centroid - (*potential_feat_)[p_indice].getVector3fMap()).cross(potential_feat_->points[i].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap());
+
 		if (normal.norm() < 1e-6) continue;//It implies that these three points are collinear and cannot generate a plane.
 		normal.normalize();
 
 		for (const int& j : nn_indices) {
-			if (normal.dot(potential_feat_->points[nn_indices[j]].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap()) > 0) {
+			if (normal.dot(input_->points[j].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap()) > 0) {
 				subNbrA.push_back(j);
 			}
-			if (normal.dot(potential_feat_->points[nn_indices[j]].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap()) < 0) {
+			if (normal.dot(input_->points[j].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap()) < 0) {
 				subNbrB.push_back(j);
 			}
-			if (normal.dot(potential_feat_->points[nn_indices[j]].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap()) == 0) {
+			if (normal.dot(input_->points[j].getVector3fMap() - (*potential_feat_)[p_indice].getVector3fMap()) == 0) {
 				subNbrA.push_back(j);
 				subNbrB.push_back(j);
 			}
@@ -84,22 +85,22 @@ float StD_perception::calWCPMetric(const int p_indice, const std::vector<int> nn
 
 	//计算平面参数
 	Eigen::Vector4f plane_parameters;
-	plane_parameters[0] = (*normal_)[p_indice].normal_x;
-	plane_parameters[1] = (*normal_)[p_indice].normal_y;
-	plane_parameters[2] = (*normal_)[p_indice].normal_z;
+	plane_parameters[0] = (*potential_feat_normal_)[p_indice].normal_x;
+	plane_parameters[1] = (*potential_feat_normal_)[p_indice].normal_y;
+	plane_parameters[2] = (*potential_feat_normal_)[p_indice].normal_z;
 	plane_parameters[3] = 0;
 	plane_parameters[3] = -1 * plane_parameters.dot((*potential_feat_)[p_indice].getVector4fMap());
 
 	//计算邻域点的两个metric
 	Eigen::Vector4f centroid;
 	Eigen::Vector3f ni = plane_parameters.block<3, 1>(0, 0);
-	pcl::compute3DCentroid<PointT>(*potential_feat_, nn_indices, centroid);
+	pcl::compute3DCentroid<PointT>(*input_, nn_indices, centroid);
 	centroid[3] = 0;
 	float d_sum = 0, theta_sum=0;
 	std::vector<float> d(n);
 	std::vector<float> theta(n);
 	for (size_t j = 0; j < n; j++) {
-		d[j]=fabs((centroid - (*potential_feat_)[nn_indices[j]].getVector4fMap()).dot(plane_parameters));
+		d[j]=fabs((centroid - (*input_)[nn_indices[j]].getVector4fMap()).dot(plane_parameters));
 		d_sum += d[j];
 		
 		Eigen::Vector3f nj = { (*normal_)[nn_indices[j]].normal_x,(*normal_)[nn_indices[j]].normal_y ,(*normal_)[nn_indices[j]].normal_z };
@@ -154,7 +155,7 @@ PointCloudPtr StD_perception::detectFeaturePoints() {
 	*potential_feat_ = *input_;
 	*potential_feat_normal_ = *normal_;
 
-	while (feat_->size() < static_cast<size_t>(alpha_ * input_->size()) || z < 3) {
+	while (feat_->size() < static_cast<size_t>(alpha_ * input_->size()) && z < splitting_n_) {
 		//Calculate the variation metric pointwisely
 		for (int p_indice = 0; p_indice < potential_feat_->size(); p_indice++) {
 			//calculate process
@@ -182,24 +183,39 @@ PointCloudPtr StD_perception::detectFeaturePoints() {
 				}
 				potential_feat_nn_indices[p_indice] = bestSubNbr;
 				potential_feat_->points[p_indice].intensity = delta;
-				z++;
 			}
 			
 		}
 		//Sort the potential feature point cloud(V) based on the variation metric.
-		pcl::PointCloud<pcl::PointXYZINormal>::Ptr potential_feat_with_normals(new pcl::PointCloud<pcl::PointXYZINormal>);
-		pcl::concatenateFields(*potential_feat_, *potential_feat_normal_, *potential_feat_with_normals);
-		std::sort(potential_feat_with_normals->points.begin(), potential_feat_with_normals->points.end(), compareIntensity);
-		size_t topN = static_cast<size_t>(potential_feat_with_normals->size() * beta_);
-		size_t bottomM = static_cast<size_t>(potential_feat_with_normals->size() * gamma_);
-		splitPointNormal(*potential_feat_with_normals, *potential_feat_, *potential_feat_normal_);
+		//创建索引数组
+		std::vector<size_t> idx(potential_feat_->size());
+		std::iota(idx.begin(), idx.end(), 0);  // 初始化为[0, 1, 2, ...]
 
-		//Update data
+		// 2. 使用lambda函数和std::sort()对索引数组进行排序
+		std::sort(idx.begin(), idx.end(),
+			[this](size_t i1, size_t i2) {
+				return compareIntensity(potential_feat_->points[i1], potential_feat_->points[i2]);
+			});
+
+		// 3. 使用排序后的索引数组重新排序所有的数组
+		auto old_potential_feat = *potential_feat_;
+		auto old_potential_feat_normal = *potential_feat_normal_;
+		auto old_potential_feat_nn_indices = potential_feat_nn_indices;
+
+		for (size_t i = 0; i < idx.size(); ++i) {
+			potential_feat_->points[i] = old_potential_feat.points[idx[i]];
+			potential_feat_normal_->points[i] = old_potential_feat_normal.points[idx[i]];
+			potential_feat_nn_indices[i] = old_potential_feat_nn_indices[idx[i]];
+		}
+
+		size_t topN = static_cast<size_t>(potential_feat_->size() * beta_);
+		size_t bottomM = static_cast<size_t>(potential_feat_->size() * gamma_);
+
 		feat_->points.insert(feat_->points.end(), potential_feat_->points.begin(), potential_feat_->points.begin() + topN);
 		potential_feat_->points.assign(potential_feat_->points.begin() + topN + 1, potential_feat_->points.end() - bottomM);
 		potential_feat_normal_->points.assign(potential_feat_normal_->points.begin() + topN + 1, potential_feat_normal_->points.end() - bottomM);
 		potential_feat_nn_indices.assign(potential_feat_nn_indices.begin() + topN + 1, potential_feat_nn_indices.end() - bottomM);
-	
+		z = z + 1;
 	}
 
 	return feat_;
