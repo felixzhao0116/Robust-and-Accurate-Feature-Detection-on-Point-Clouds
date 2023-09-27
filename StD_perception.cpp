@@ -9,6 +9,11 @@
 #include <pcl/visualization/point_cloud_geometry_handlers.h>
 #include <pcl/visualization/impl/point_cloud_geometry_handlers.hpp>
 
+#include <indicators/progress_bar.hpp>
+#include <indicators/cursor_control.hpp>
+#include <thread>
+#include <chrono>
+
 #include <pcl/visualization/pcl_visualizer.h>
 
 static bool compareIntensity(const PointT& a, const PointT& b) {
@@ -133,33 +138,111 @@ float StD_perception::calWCPMetric(const int p_indice, const std::vector<int> nn
 	return (kn * kp * D);
 }
 
+void StD_perception::updatePotentialFeature() {
+	std::vector<size_t> idx(potential_feat_->size());
+	std::iota(idx.begin(), idx.end(), 0);  // 初始化为[0, 1, 2, ...]
+	std::sort(idx.begin(), idx.end(),
+		[this](size_t i1, size_t i2) {
+			return compareIntensity(potential_feat_->points[i1], potential_feat_->points[i2]);
+		});
+
+
+	auto old_potential_feat = *potential_feat_;
+	auto old_potential_feat_normal = *potential_feat_normal_;
+	auto old_potential_feat_nn_indices = potential_feat_nn_indices;
+
+	for (size_t i = 0; i < idx.size(); ++i) {
+		potential_feat_->points[i] = old_potential_feat.points[idx[i]];
+		potential_feat_normal_->points[i] = old_potential_feat_normal.points[idx[i]];
+		potential_feat_nn_indices[i] = old_potential_feat_nn_indices[idx[i]];
+	}
+
+	size_t topN = static_cast<size_t>(potential_feat_->size() * beta_);
+	size_t bottomM = static_cast<size_t>(potential_feat_->size() * gamma_);
+
+	feat_->points.insert(feat_->points.end(), potential_feat_->points.begin(), potential_feat_->points.begin() + topN);
+	potential_feat_->points.assign(potential_feat_->points.begin() + topN + 1, potential_feat_->points.end() - bottomM);
+	potential_feat_normal_->points.assign(potential_feat_normal_->points.begin() + topN + 1, potential_feat_normal_->points.end() - bottomM);
+	potential_feat_nn_indices.assign(potential_feat_nn_indices.begin() + topN + 1, potential_feat_nn_indices.end() - bottomM);
+	std::cout << "========The feature points propotion is " + std::to_string(static_cast<float>(feat_->size()) / input_->size() * 100) + "%========" << std::endl;
+}
+
 PointCloudPtr StD_perception::detectFeaturePoints() {
 	//normal calculation
+	std::cout << "========Calculate the normal========" << std::endl;
+	tt.tic();
 	pcl::NormalEstimationOMP < PointT, pcl::Normal > ne;
 	ne.setInputCloud(input_);
 	ne.setSearchMethod(tree_);
 	ne.setNumberOfThreads(64);
 	ne.setRadiusSearch(radius_);
 	ne.compute(*normal_);
+	std::cout << "The execution time: " << tt.toc() << "ms" << std::endl << std::endl;
 
 	//normal orientation propogation
+	std::cout << "========Orient the normal========" << std::endl;
+	tt.tic();
 	pcl::PointCloud<pcl::PointXYZINormal>::Ptr input_with_normals(new pcl::PointCloud<pcl::PointXYZINormal>);
 	pcl::concatenateFields(*input_, *normal_, *input_with_normals);
 	OrientNormal origen;
 	origen.consistentTangentPlane(input_with_normals, 20, false); //***
 	splitPointNormal(*input_with_normals, *input_, *normal_);
+	std::cout << "The execution time: " << tt.toc() << "ms" << std::endl;
+	std::cout << "The normal is visualized. Close the visualizer to continue." << std::endl << std::endl;
+	
+	//The visualization of the normal
+	boost::shared_ptr<pcl::visualization::PCLVisualizer> oriented_normal_viewer(new pcl::visualization::PCLVisualizer("oriented_normal_viewer"));
+	oriented_normal_viewer->setWindowName("oriented_normal_viewer");
+	oriented_normal_viewer->addText("oriented_normal_viewer", 50, 50, 0, 1, 0, "v1_text");
+	oriented_normal_viewer->addPointCloud<pcl::PointXYZINormal>(input_with_normals, "input_with_normals");
+	oriented_normal_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0, 1, 0, "input_with_normals");
+	oriented_normal_viewer->addPointCloudNormals<pcl::PointXYZINormal>(input_with_normals, 1, 10, "normals");
+
+	while (!oriented_normal_viewer->wasStopped())
+	{
+		oriented_normal_viewer->spinOnce(100);
+		boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+	}
 
 	float delta = 0;	//weighted centroid projection metric
 	int z = 0;//the number of neighborhood splitting operation
-	std::vector<std::vector<int>> potential_feat_nn_indices;
+
 	*potential_feat_ = *input_;
 	*potential_feat_normal_ = *normal_;
-
+	
 	while (feat_->size() < static_cast<size_t>(alpha_ * input_->size()) && z < splitting_n_) {
+		if (z == 0) {
+			std::cout << "======Initialize the neighborhood========" << std::endl;
+			tt.tic();
+		}
+		else std::cout << "======Split the neighborhood: " + std::to_string(z)+" ========" << std::endl;
+
+		using namespace indicators;
+		show_console_cursor(false);
+		indicators::ProgressBar bar{
+		  option::BarWidth{50},
+		  option::Start{" ["},
+		  option::Fill{"█"},
+		  option::Lead{"█"},
+		  option::Remainder{"-"},
+		  option::End{"]"},
+		  option::PrefixText{"Detecting the feature points "},
+		  option::ForegroundColor{Color::yellow},
+		  option::ShowElapsedTime{true},
+		  option::ShowRemainingTime{true},
+		  option::FontStyles{std::vector<FontStyle>{FontStyle::bold}}
+		};
+		
 		//Calculate the variation metric pointwisely
+		int step = potential_feat_->size() / 10;
+		int progress = 0;
 		for (int p_indice = 0; p_indice < potential_feat_->size(); p_indice++) {
 			//calculate process
 			if (z == 0) { //Initialize the neighborhood
+				if (p_indice % step == 0 && progress <= 100) {
+					bar.set_progress(progress);
+					progress += 10;
+				}
 				std::vector<int> nn_indices;
 				std::vector<float> nn_dists;
 				tree_->radiusSearch((*input_)[p_indice], radius_, nn_indices, nn_dists);
@@ -168,6 +251,10 @@ PointCloudPtr StD_perception::detectFeaturePoints() {
 				potential_feat_->points[p_indice].intensity = delta;
 			}
 			else {
+				if (p_indice % step == 0 && progress <= 100) {
+					bar.set_progress(progress);
+					progress += 10;
+				}
 				//split the neighborhood and get 2K sub-neighborhoods
 				std::vector<std::vector<int>> sub_neighborhoods;
 				sub_neighborhoods = splitNeighbors(p_indice, potential_feat_nn_indices[p_indice]);
@@ -183,38 +270,13 @@ PointCloudPtr StD_perception::detectFeaturePoints() {
 				}
 				potential_feat_nn_indices[p_indice] = bestSubNbr;
 				potential_feat_->points[p_indice].intensity = delta;
-			}
-			
+			}	
 		}
+		show_console_cursor(true);
+
 		//Sort the potential feature point cloud(V) based on the variation metric.
-		//创建索引数组
-		std::vector<size_t> idx(potential_feat_->size());
-		std::iota(idx.begin(), idx.end(), 0);  // 初始化为[0, 1, 2, ...]
-
-		// 2. 使用lambda函数和std::sort()对索引数组进行排序
-		std::sort(idx.begin(), idx.end(),
-			[this](size_t i1, size_t i2) {
-				return compareIntensity(potential_feat_->points[i1], potential_feat_->points[i2]);
-			});
-
-		// 3. 使用排序后的索引数组重新排序所有的数组
-		auto old_potential_feat = *potential_feat_;
-		auto old_potential_feat_normal = *potential_feat_normal_;
-		auto old_potential_feat_nn_indices = potential_feat_nn_indices;
-
-		for (size_t i = 0; i < idx.size(); ++i) {
-			potential_feat_->points[i] = old_potential_feat.points[idx[i]];
-			potential_feat_normal_->points[i] = old_potential_feat_normal.points[idx[i]];
-			potential_feat_nn_indices[i] = old_potential_feat_nn_indices[idx[i]];
-		}
-
-		size_t topN = static_cast<size_t>(potential_feat_->size() * beta_);
-		size_t bottomM = static_cast<size_t>(potential_feat_->size() * gamma_);
-
-		feat_->points.insert(feat_->points.end(), potential_feat_->points.begin(), potential_feat_->points.begin() + topN);
-		potential_feat_->points.assign(potential_feat_->points.begin() + topN + 1, potential_feat_->points.end() - bottomM);
-		potential_feat_normal_->points.assign(potential_feat_normal_->points.begin() + topN + 1, potential_feat_normal_->points.end() - bottomM);
-		potential_feat_nn_indices.assign(potential_feat_nn_indices.begin() + topN + 1, potential_feat_nn_indices.end() - bottomM);
+		updatePotentialFeature();
+		std::cout << "The execution time: " << tt.toc() << "ms" << std::endl << std::endl;
 		z = z + 1;
 	}
 

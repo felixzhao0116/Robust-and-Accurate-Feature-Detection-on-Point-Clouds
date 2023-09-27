@@ -2,6 +2,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
+#include <pcl/console/time.h>
 
 using PointT = pcl::PointXYZI;
 using PointCloud = pcl::PointCloud<PointT>;
@@ -9,6 +10,8 @@ using PointCloudPtr = PointCloud::Ptr;
 using NormalCloud = pcl::PointCloud<pcl::Normal>;
 using NormalCloudPtr = NormalCloud::Ptr;
 using SearchPtr = pcl::search::KdTree<PointT>::Ptr;
+
+extern pcl::console::TicToc tt;
 
 class StD_perception {
 public:
@@ -65,6 +68,8 @@ private:
 
 	std::vector<std::vector<int>> splitNeighbors(const int& p_indice, const std::vector<int>& nn_indices);
 
+	void updatePotentialFeature();
+
 protected:
 	//The input cloud
 	PointCloudPtr input_;
@@ -77,6 +82,9 @@ protected:
 
 	//The normal of the potential feature point cloud
 	NormalCloudPtr potential_feat_normal_;
+
+	//The nn_indices of the potential feature point cloud
+	std::vector<std::vector<int>> potential_feat_nn_indices;
 
 	//The indices of the potential feature point cloud
 	pcl::Indices potential_feat_indices_;

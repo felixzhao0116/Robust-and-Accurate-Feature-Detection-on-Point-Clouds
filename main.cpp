@@ -7,12 +7,14 @@
 #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/search/kdtree.h>
+#include <pcl/console/time.h>
 #include <cmath>
 
 #include "StD_perception.h"
 
-
 namespace po = boost::program_options;
+
+pcl::console::TicToc tt;
 
 int main(int argc, char *argv[]) {
 	//Command line parameter
@@ -31,7 +33,7 @@ int main(int argc, char *argv[]) {
 	//load point cloud
 	PointCloudPtr input_cloud(new PointCloud);//global input
 	PointCloudPtr feat_cloud(new PointCloud);//global output
-	pcl::io::loadPCDFile<PointT>("D:\\workspace\\Robust-and-Accurate-Feature-Detection-on-Point-Clouds\\pointcloud\\bun_zipper.pcd", *input_cloud);
+	pcl::io::loadPCDFile<PointT>("D:\\workspace\\Robust-and-Accurate-Feature-Detection-on-Point-Clouds\\pointcloud\\qwe.pcd", *input_cloud);
 
 	//calculate the average distance between each point and its nearest neighbor to generate the hyper-parameters
 	SearchPtr tree_init(new pcl::search::KdTree<PointT>);
@@ -47,6 +49,7 @@ int main(int argc, char *argv[]) {
 	std::cout << "The average distance between each point is " << dist_mean << std::endl;
 	
 	//Command line parameter parsing
+	std::cout << "========The parsing result========" << std::endl;
 	try {
 		po::store(po::parse_command_line(argc, argv, desc), vm);
 		po::notify(vm);
@@ -89,7 +92,8 @@ int main(int argc, char *argv[]) {
 		std::cerr << desc << "\n";
 		return -1;
 	}
-
+	
+	std::cout << "========The Structure-to-detail feature perception========" << std::endl;
 	//Structure-to-detail feature perception
 	StD_perception detector;
 	detector.setInputCloud(input_cloud);
@@ -102,7 +106,6 @@ int main(int argc, char *argv[]) {
 	detector.setLowerPotentialBound(vm["lower_potential_bound"].as<double>());
 	detector.setScalingFactor(vm["bilateral_weight_normal"].as<double>(), vm["bilateral_weight_plane"].as<double>() * dist_mean);
 	feat_cloud = detector.detectFeaturePoints();
-	
 
 	//特征点可视化，可供下游任务：点云分割、特征线提取、表面重建使用
 	int v1 = 0;
