@@ -160,10 +160,19 @@ void StD_perception::updatePotentialFeature() {
 	size_t topN = static_cast<size_t>(potential_feat_->size() * beta_);
 	size_t bottomM = static_cast<size_t>(potential_feat_->size() * gamma_);
 
-	feat_->points.insert(feat_->points.end(), potential_feat_->points.begin(), potential_feat_->points.begin() + topN);
-	potential_feat_->points.assign(potential_feat_->points.begin() + topN + 1, potential_feat_->points.end() - bottomM);
-	potential_feat_normal_->points.assign(potential_feat_normal_->points.begin() + topN + 1, potential_feat_normal_->points.end() - bottomM);
-	potential_feat_nn_indices.assign(potential_feat_nn_indices.begin() + topN + 1, potential_feat_nn_indices.end() - bottomM);
+	size_t actualTopN = topN;  // 实际要取的特征点数
+	float itensityFlag = mu_p_;
+	for (size_t i = 0; i < topN - 1; ++i) {
+		if ((*potential_feat_)[i].intensity < mu_p_) {
+			actualTopN = i;
+			break;
+		}
+	}
+
+	feat_->points.insert(feat_->points.end(), potential_feat_->points.begin(), potential_feat_->points.begin() + actualTopN);
+	potential_feat_->points.assign(potential_feat_->points.begin() + actualTopN, potential_feat_->points.end() - bottomM);
+	potential_feat_normal_->points.assign(potential_feat_normal_->points.begin() + actualTopN, potential_feat_normal_->points.end() - bottomM);
+	potential_feat_nn_indices.assign(potential_feat_nn_indices.begin() + actualTopN, potential_feat_nn_indices.end() - bottomM);
 	std::cout << "========The feature points propotion is " + std::to_string(static_cast<float>(feat_->size()) / input_->size() * 100) + "%========" << std::endl;
 }
 
@@ -192,11 +201,13 @@ PointCloudPtr StD_perception::detectFeaturePoints() {
 	
 	//The visualization of the normal
 	boost::shared_ptr<pcl::visualization::PCLVisualizer> oriented_normal_viewer(new pcl::visualization::PCLVisualizer("oriented_normal_viewer"));
+	oriented_normal_viewer->setBackgroundColor(1, 1, 1);
 	oriented_normal_viewer->setWindowName("oriented_normal_viewer");
-	oriented_normal_viewer->addText("oriented_normal_viewer", 50, 50, 0, 1, 0, "v1_text");
+	oriented_normal_viewer->addText("oriented_normal_viewer", 50, 50, 1, 0, 0, "v1_text");
 	oriented_normal_viewer->addPointCloud<pcl::PointXYZINormal>(input_with_normals, "input_with_normals");
-	oriented_normal_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0, 1, 0, "input_with_normals");
-	oriented_normal_viewer->addPointCloudNormals<pcl::PointXYZINormal>(input_with_normals, 1, 10, "normals");
+	oriented_normal_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0, 0, 0, "input_with_normals");
+	oriented_normal_viewer->addPointCloudNormals<pcl::PointXYZINormal>(input_with_normals, 1, radius_, "normals");
+	oriented_normal_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, "normals");
 
 	while (!oriented_normal_viewer->wasStopped())
 	{
@@ -269,7 +280,7 @@ PointCloudPtr StD_perception::detectFeaturePoints() {
 					}
 				}
 				potential_feat_nn_indices[p_indice] = bestSubNbr;
-				potential_feat_->points[p_indice].intensity = delta;
+				potential_feat_->points[p_indice].intensity = maxWCP;
 			}	
 		}
 		show_console_cursor(true);

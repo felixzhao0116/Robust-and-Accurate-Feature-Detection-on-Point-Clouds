@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
 	//load point cloud
 	PointCloudPtr input_cloud(new PointCloud);//global input
 	PointCloudPtr feat_cloud(new PointCloud);//global output
-	pcl::io::loadPCDFile<PointT>("D:\\workspace\\Robust-and-Accurate-Feature-Detection-on-Point-Clouds\\pointcloud\\qwe.pcd", *input_cloud);
+	pcl::io::loadPCDFile<PointT>("D:\\workspace\\Robust-and-Accurate-Feature-Detection-on-Point-Clouds\\pointcloud\\octaflower.pcd", *input_cloud);
 
 	//calculate the average distance between each point and its nearest neighbor to generate the hyper-parameters
 	SearchPtr tree_init(new pcl::search::KdTree<PointT>);
